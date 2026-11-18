@@ -1,5 +1,3 @@
-# SR
-
 [Shadowrocket](https://apps.apple.com/us/app/shadowrocket/id932747118) 分流配置，由[向晚](https://t.me/xiangwanguan)维护。
 
 ---
