@@ -1,0 +1,157 @@
+name: Sync Rulesets
+on:
+  schedule:
+    - cron: '10 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  SyncRulesets:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Download Domain List
+      run: |
+        url="https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
+        curl -fsSL --retry 1 --retry-delay 2 --retry-all-errors -o dlc.yml "$url" \
+          || { echo "::error::Download failed: $url"; exit 1; }
+        curl -fsSL --retry 1 --retry-delay 2 --retry-all-errors -o dlc.yml.sha256sum "$url.sha256sum" \
+          || { echo "::error::Download failed: $url.sha256sum"; exit 1; }
+        sed 's/dlc\.dat_plain\.yml/dlc.yml/' dlc.yml.sha256sum | sha256sum -c - \
+          || { echo "::error::Checksum failed: dlc.yml"; exit 1; }
+
+    - name: Download GeoIP List
+      run: |
+        url="https://raw.githubusercontent.com/v2fly/geoip/release/text/private.txt"
+        curl -fsSL --retry 1 --retry-delay 2 --retry-all-errors -o private.txt "$url" \
+          || { echo "::error::Download failed: $url"; exit 1; }
+        [ -s private.txt ] || { echo "::error::Empty file: private.txt"; exit 1; }
+        if grep -Eqv '^[0-9a-fA-F:.]+/[0-9]+$' private.txt; then
+          echo "::error::Invalid CIDR line in private.txt"; exit 1
+        fi
+
+    - name: Build Rule Lists
+      run: |
+        set -e
+        mkdir -p Rulesets
+        cat > emit.awk <<'AWK'
+        /^  - name: "/ { name = $0; sub(/^  - name: "/, "", name); sub(/"$/, "", name); next }
+        /^      - "/ {
+          if (name != want) next
+          line = $0; attr = ""
+          sub(/^      - "/, "", line); sub(/"$/, "", line)
+          if (line ~ /^(regexp|keyword):/) next
+          if (match(line, /:@/)) { attr = substr(line, RSTART + 1); sub(/^:/, "", attr) }
+          sub(/:@.*$/, "", line)
+          if (line ~ /^domain:/) { type = "DOMAIN-SUFFIX"; domain = substr(line, 8) }
+          else if (line ~ /^full:/) { type = "DOMAIN"; domain = substr(line, 6) }
+          else { type = "DOMAIN-SUFFIX"; domain = line }
+          if (domain == "") next
+          is_cn = (attr ~ /(^|,)@cn(,|$)/)
+          if (mode == "cn" && !is_cn) next
+          if (mode == "!cn" && is_cn) next
+          print type "," domain
+        }
+        AWK
+        missing=""
+        emit() { local out
+          out=$(awk -v want="$1" -v mode="${2:-}" -f emit.awk dlc.yml)
+          if [ -n "$out" ]; then printf '%s\n' "$out"; else missing="${missing:+$missing }$1${2:+[$2]}"; fi; }
+        { echo '# > Private'
+          sed 's/^/IP-CIDR,/; s/$/,no-resolve/' private.txt
+          emit private
+        } > Rulesets/Private.list
+        { echo '# > Direct'
+          emit cn
+          emit 'geolocation-!cn' cn
+          emit apple cn
+          emit category-ddns
+          emit category-game-platforms-download cn
+          emit category-ip-geo-detect cn
+        } > Rulesets/Direct.list
+        { echo '# > Proxy'
+          emit 'geolocation-!cn' '!cn'
+          emit apple '!cn'
+          emit category-ip-geo-detect '!cn'
+          emit category-public-tracker
+        } > Rulesets/Proxy.list
+        [ -z "$missing" ] || { echo "::error::Empty section(s): $missing"; exit 1; }
+        rm -f dlc.yml dlc.yml.sha256sum emit.awk private.txt
+
+    - name: Canonicalize Rule Lists
+      run: |
+        set -e
+        for path in Rulesets/*.list; do
+          awk -F, '
+            NR == FNR { if ($1 == "DOMAIN-SUFFIX") suf[$2] = 1; next }
+            !$0 || seen[$0]++ { next }
+            $1 == "DOMAIN" || $1 == "DOMAIN-SUFFIX" {
+              parent = $2
+              if ($1 == "DOMAIN" && (parent in suf)) next
+              while (sub(/^[^.]+\./, "", parent)) if (parent in suf) next
+            }
+            { print }
+          ' "$path" "$path" > "$path.tmp" && mv "$path.tmp" "$path" \
+            || { echo "::error::Canonicalize Rule Lists failed: $path"; exit 1; }
+        done
+
+    - name: Order Rule Lists
+      run: |
+        set -e
+        set -o pipefail
+        for path in Rulesets/*.list; do
+          awk -F, '
+            function ipkey(value, addr, parts, groups, count, i, zeros, scratch, key) {
+              split(value, addr, "/")
+              if (addr[1] !~ /:/) { split(addr[1], parts, /[.]/); return sprintf("1%03d%03d%03d%03d", parts[1], parts[2], parts[3], parts[4]) }
+              value = tolower(addr[1])
+              if (value ~ /\./) {
+                count = split(value, parts, /[:.]/)
+                sub(/[^:]+$/, sprintf("%x:%x", parts[count-3] * 256 + parts[count-2], parts[count-1] * 256 + parts[count]), value)
+              }
+              scratch = value; count = 8 - gsub(/[0-9a-f]+/, "", scratch)
+              for (i = 0; i < count; i++) zeros = zeros "0:"
+              if (index(value, "::")) { sub(/::/, ":" zeros, value); sub(/^:/, "", value); sub(/:$/, "", value) }
+              key = "2"
+              count = split(value, groups, ":")
+              for (i = 1; i <= count; i++) { while (length(groups[i]) < 4) groups[i] = "0" groups[i]; key = key groups[i] }
+              return key
+            }
+            BEGIN {
+              count = split("DOMAIN DOMAIN-SUFFIX IP-CIDR", types, " ")
+              for (i = 1; i <= count; i++) rank[types[i]] = i
+            }
+            /^#/ { print "0\t\t" $0; next }
+            !($1 in rank) { print "99\t\t" $0; next }
+            { sort_key = ""
+              if ($1 == "IP-CIDR") sort_key = ipkey($2)
+              print rank[$1] "\t" sort_key "\t" $0 }
+          ' "$path" | LC_ALL=C sort -t$'\t' -k1,1n -k2,2 -k3 | cut -f3- > "$path.tmp"
+          diff -q <(LC_ALL=C sort "$path") <(LC_ALL=C sort "$path.tmp") > /dev/null \
+            || { echo "::error::Order Rule Lists changed content: $path"; exit 1; }
+          mv "$path.tmp" "$path"
+        done
+
+    - name: Rebase Before Commit
+      run: |
+        git pull --rebase --autostash origin main
+
+    - name: Commit Sync Changes
+      id: commit
+      uses: EndBug/add-and-commit@v11
+      with:
+        default_author: github_actions
+        message: 'chore: 同步分流资源'
+        add: 'Rulesets/**'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
