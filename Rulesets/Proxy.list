@@ -264,7 +264,6 @@ DOMAIN,opentor.org
 DOMAIN,opentracker.acgnx.com
 DOMAIN,opentracker.acgnx.se
 DOMAIN,opentracker.io
-DOMAIN,opentrackr.org
 DOMAIN,oscar.reyesleon.xyz
 DOMAIN,p16-tiktok-dm-sticker-sign-sg.ibyteimg.com
 DOMAIN,p2p.0g.cx
@@ -459,7 +458,6 @@ DOMAIN,tracker.netmap.top
 DOMAIN,tracker.nighthawk.pw
 DOMAIN,tracker.open-internet.nl
 DOMAIN,tracker.openbittorrent.com
-DOMAIN,tracker.opentrackr.org
 DOMAIN,tracker.picotorrent.one
 DOMAIN,tracker.pirateparty.gr
 DOMAIN,tracker.plx.im
@@ -8612,6 +8610,7 @@ DOMAIN-SUFFIX,fc-buddyfight.com
 DOMAIN-SUFFIX,fc2ppv.tv
 DOMAIN-SUFFIX,fcacebook.com
 DOMAIN-SUFFIX,fcaebook.com
+DOMAIN-SUFFIX,fce.gg
 DOMAIN-SUFFIX,fcebook.com
 DOMAIN-SUFFIX,fcebookk.com
 DOMAIN-SUFFIX,fcfacebook.com
@@ -17495,6 +17494,8 @@ DOMAIN-SUFFIX,opensuse.org
 DOMAIN-SUFFIX,opentgc.com
 DOMAIN-SUFFIX,openthread.io
 DOMAIN-SUFFIX,opentimetable.jp
+DOMAIN-SUFFIX,opentracker.xyz
+DOMAIN-SUFFIX,opentrackr.org
 DOMAIN-SUFFIX,opentranslatorstothings.org
 DOMAIN-SUFFIX,openvino.ai
 DOMAIN-SUFFIX,openvinotoolkit.org
@@ -25519,6 +25520,7 @@ DOMAIN-SUFFIX,zenlesszonezero.com
 DOMAIN-SUFFIX,zenodo.org
 DOMAIN-SUFFIX,zeplin.dev
 DOMAIN-SUFFIX,zeplin.io
+DOMAIN-SUFFIX,zer0day.ch
 DOMAIN-SUFFIX,zeriamerikes.com
 DOMAIN-SUFFIX,zerochan.net
 DOMAIN-SUFFIX,zerohedge.com
